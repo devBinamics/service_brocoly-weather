@@ -16,14 +16,18 @@ const WEATHER_ICONS = {
 };
 
 function formatTime(timestamp) {
-  return new Date(timestamp * 1000)
-    .toLocaleTimeString('es-AR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    })
-     .replace('a. m.', 'AM')
-     .replace('p. m.', 'PM');
+  const date = new Date(timestamp * 1000);
+  
+  // Ajustar a UTC-3 (Argentina)
+  const argentinaTime = new Date(date.getTime() - (3 * 60 * 60 * 1000));
+  
+  return argentinaTime.toLocaleTimeString('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+  .replace('a. m.', 'AM')
+  .replace('p. m.', 'PM');
 }
 
 function formatDate(timestamp) {
