@@ -17,8 +17,9 @@ const WEATHER_ICONS = {
 
 function formatTime(timestamp) {
   const date = new Date(timestamp * 1000);
-    
-  return date.toLocaleTimeString('es-AR', {
+  const argentinaTime = new Date(date.getTime() - (3 * 60 * 60 * 1000));
+  
+  return argentinaTime.toLocaleTimeString('es-AR', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false
