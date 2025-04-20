@@ -280,6 +280,7 @@ app.get('/precios/:producto', async (req, res) => {
   }
 });
 
+
 // Ruta para la página de inicio que muestra los endpoints disponibles
 app.get('/', (req, res) => {
   res.send(`
