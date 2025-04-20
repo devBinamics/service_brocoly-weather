@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
+const cheerio = require('cheerio');
 const app = express();
 
 const WEATHER_ICONS = {
@@ -107,12 +108,229 @@ Pronóstico de 4 días:
 • *${formatDate(daily[2].dt)}*: ${getWeatherIcon(daily[2].weather[0].icon)} ${daily[2].temp.min.toFixed(1)}°C - ${daily[2].temp.max.toFixed(1)}°C
 • *${formatDate(daily[3].dt)}*: ${getWeatherIcon(daily[3].weather[0].icon)} ${daily[3].temp.min.toFixed(1)}°C - ${daily[3].temp.max.toFixed(1)}°C
 • *${formatDate(daily[4].dt)}*: ${getWeatherIcon(daily[4].weather[0].icon)} ${daily[4].temp.min.toFixed(1)}°C - ${daily[4].temp.max.toFixed(1)}°C`
-};
+    };
 
     res.json(weatherData);
   } catch (error) {
+    console.error('Error al obtener datos del clima:', error);
     res.status(500).json({ error: 'Error al obtener datos del clima' });
   }
+});
+
+// Ruta para obtener todos los precios de pizarra de la BCR
+app.get('/precios', async (req, res) => {
+  try {
+    // URL de la página a scrapear
+    const url = 'https://www.cac.bcr.com.ar/es/precios-de-pizarra';
+    
+    // Hacer la petición HTTP para obtener el HTML
+    const response = await axios.get(url);
+    
+    // Cargar el HTML en cheerio
+    const $ = cheerio.load(response.data);
+    
+    // Array para almacenar los resultados
+    const precios = [];
+    
+    // Extraer la fecha de los precios
+    const fechaTexto = $('.paragraph--type--prices-board h3').text().trim();
+    const fechaMatch = fechaTexto.match(/Precios Pizarra del día (\d{2}\/\d{2}\/\d{4})/);
+    const fecha = fechaMatch ? fechaMatch[1] : 'Fecha no disponible';
+    
+    // Extraer información de cada tablero de precios (board)
+    $('.board').each((index, element) => {
+      const producto = $(element).find('h3').text().trim();
+      const precioTexto = $(element).find('.price').text().trim();
+      const precio = precioTexto !== 'S/C' ? precioTexto : 'Sin cotización';
+      
+      // Extraer información adicional
+      const diferenciaPrecio = $(element).find('.bottom .cell:nth-child(2)').text().trim();
+      const diferenciaPorcentaje = $(element).find('.bottom .cell:nth-child(4)').text().trim();
+      
+      // Determinar tendencia
+      let tendencia = 'Sin cambios';
+      if ($(element).find('.fa-arrow-up').length > 0) {
+        tendencia = 'Sube';
+      } else if ($(element).find('.fa-arrow-down').length > 0) {
+        tendencia = 'Baja';
+      }
+      
+      // Verificar si hay precio estimativo
+      let precioEstimativo = null;
+      const precioSCText = $(element).find('.price-sc').text().trim();
+      if (precioSCText) {
+        const precioEstMatch = precioSCText.match(/\(Estimativo\) (.+)/);
+        precioEstimativo = precioEstMatch ? precioEstMatch[1] : precioSCText;
+      }
+      
+      precios.push({
+        fecha,
+        producto,
+        precio,
+        diferencia_precio: diferenciaPrecio,
+        diferencia_porcentaje: diferenciaPorcentaje,
+        tendencia,
+        precio_estimativo: precioEstimativo
+      });
+    });
+    
+    // Extraer información del pie de página
+    const footerText = $('.price-board-footer div:nth-child(2)').text().trim();
+    const horaMatch = footerText.match(/Hora: (\d{2}:\d{2})/);
+    const hora = horaMatch ? horaMatch[1] : 'Hora no disponible';
+    
+    // Devolver los resultados como JSON
+    res.json({
+      success: true,
+      fecha_actualizacion: fecha,
+      hora_actualizacion: hora,
+      data: precios,
+      total: precios.length
+    });
+    
+  } catch (error) {
+    console.error('Error al hacer scraping:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener los datos',
+      message: error.message
+    });
+  }
+});
+
+// Ruta para obtener precios de un producto específico
+app.get('/precios/:producto', async (req, res) => {
+  try {
+    const productoQuery = req.params.producto.toLowerCase();
+    const url = 'https://www.cac.bcr.com.ar/es/precios-de-pizarra';
+    
+    const response = await axios.get(url);
+    const $ = cheerio.load(response.data);
+    
+    // Extraer la fecha de los precios
+    const fechaTexto = $('.paragraph--type--prices-board h3').text().trim();
+    const fechaMatch = fechaTexto.match(/Precios Pizarra del día (\d{2}\/\d{2}\/\d{4})/);
+    const fecha = fechaMatch ? fechaMatch[1] : 'Fecha no disponible';
+    
+    // Array para almacenar los resultados filtrados
+    const precios = [];
+    
+    // Extraer información de cada tablero de precios (board)
+    $('.board').each((index, element) => {
+      const producto = $(element).find('h3').text().trim();
+      
+      // Filtrar por producto (case insensitive)
+      if (producto.toLowerCase().includes(productoQuery)) {
+        const precioTexto = $(element).find('.price').text().trim();
+        const precio = precioTexto !== 'S/C' ? precioTexto : 'Sin cotización';
+        
+        // Extraer información adicional
+        const diferenciaPrecio = $(element).find('.bottom .cell:nth-child(2)').text().trim();
+        const diferenciaPorcentaje = $(element).find('.bottom .cell:nth-child(4)').text().trim();
+        
+        // Determinar tendencia
+        let tendencia = 'Sin cambios';
+        if ($(element).find('.fa-arrow-up').length > 0) {
+          tendencia = 'Sube';
+        } else if ($(element).find('.fa-arrow-down').length > 0) {
+          tendencia = 'Baja';
+        }
+        
+        // Verificar si hay precio estimativo
+        let precioEstimativo = null;
+        const precioSCText = $(element).find('.price-sc').text().trim();
+        if (precioSCText) {
+          const precioEstMatch = precioSCText.match(/\(Estimativo\) (.+)/);
+          precioEstimativo = precioEstMatch ? precioEstMatch[1] : precioSCText;
+        }
+        
+        precios.push({
+          fecha,
+          producto,
+          precio,
+          diferencia_precio: diferenciaPrecio,
+          diferencia_porcentaje: diferenciaPorcentaje,
+          tendencia,
+          precio_estimativo: precioEstimativo
+        });
+      }
+    });
+    
+    // Extraer información del pie de página
+    const footerText = $('.price-board-footer div:nth-child(2)').text().trim();
+    const horaMatch = footerText.match(/Hora: (\d{2}:\d{2})/);
+    const hora = horaMatch ? horaMatch[1] : 'Hora no disponible';
+    
+    res.json({
+      success: true,
+      producto: productoQuery,
+      fecha_actualizacion: fecha,
+      hora_actualizacion: hora,
+      data: precios,
+      total: precios.length
+    });
+    
+  } catch (error) {
+    console.error('Error al hacer scraping:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener los datos',
+      message: error.message
+    });
+  }
+});
+
+// Ruta para la página de inicio que muestra los endpoints disponibles
+app.get('/', (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>API de Clima y Precios BCR</title>
+        <style>
+          body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+          h1 { color: #2c3e50; }
+          h2 { color: #3498db; }
+          code { background-color: #f8f8f8; padding: 2px 5px; border-radius: 3px; }
+          pre { background-color: #f8f8f8; padding: 10px; border-radius: 5px; overflow-x: auto; }
+        </style>
+      </head>
+      <body>
+        <h1>API de Clima y Precios BCR</h1>
+        <p>Esta API proporciona datos del clima y precios de la Bolsa de Comercio de Rosario.</p>
+        
+        <h2>Endpoints de Clima:</h2>
+        <ul>
+          <li><code>GET /weather</code> - Obtiene datos del clima actual y pronóstico para 4 días</li>
+        </ul>
+        
+        <h2>Endpoints de Precios BCR:</h2>
+        <ul>
+          <li><code>GET /precios</code> - Obtiene todos los precios de pizarra</li>
+          <li><code>GET /precios/:producto</code> - Filtra los precios por producto (ej: /precios/soja)</li>
+        </ul>
+        
+        <h2>Ejemplo de respuesta de precios:</h2>
+        <pre>{
+  "success": true,
+  "fecha_actualizacion": "15/04/2025",
+  "hora_actualizacion": "10:12",
+  "data": [
+    {
+      "fecha": "15/04/2025",
+      "producto": "Trigo",
+      "precio": "$248.000,00",
+      "diferencia_precio": "8.000,00",
+      "diferencia_porcentaje": "3,333",
+      "tendencia": "Sube",
+      "precio_estimativo": null
+    },
+    ...
+  ],
+  "total": 5
+}</pre>
+      </body>
+    </html>
+  `);
 });
 
 const PORT = process.env.PORT || 3000;
