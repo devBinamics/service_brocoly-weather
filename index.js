@@ -4,6 +4,41 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const app = express();
 
+// Configuración del token de API
+const API_TOKEN = process.env.API_TOKEN
+// Middleware para verificar el token de autenticación
+const authMiddleware = (req, res, next) => {
+    // Rutas que no requieren autenticación
+    if (req.path === '/' || req.path === '/weather') {
+      return next();
+    }
+  
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        error: 'No autorizado',
+        message: 'Se requiere un token de autenticación válido'
+      });
+    }
+    
+    const token = authHeader.split(' ')[1];
+    
+    if (token !== API_TOKEN) {
+      return res.status(403).json({
+        success: false,
+        error: 'Acceso denegado',
+        message: 'Token de autenticación inválido'
+      });
+    }
+    
+    next();
+  };
+  
+// Aplicar middleware de autenticación a todas las rutas
+app.use(authMiddleware);
+
 const WEATHER_ICONS = {
   '01': '☀️',
   '02': '☁️',
