@@ -104,7 +104,7 @@ Ejemplo: `http://localhost:3000/precios/soja`
 
 * La funcionalidad de scraping de precios depende de la estructura HTML del sitio web de la BCR.  [https://www.cac.bcr.com.ar/es/precios-de-pizarra](https://www.cac.bcr.com.ar/es/precios-de-pizarra)
 * ⚠️ Autenticación requerida
-  Todas las rutas (excepto esta página) requieren autenticación mediante token Bearer:
+  Todas las rutas (excepto la página raízí) requieren autenticación mediante token Bearer:
   ```
   Authorization: Bearer ${API_TOKEN}
   ```
