@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const puppeteer = require('puppeteer');
+
 const app = express();
 
 // Configuración del token de API
@@ -426,6 +428,139 @@ app.get('/tasaactivabna', async (req, res) => {
       error: 'Error al obtener los datos',
       message: error.message
     });
+  }
+});
+
+// Ruta para obtener precios internacionales de Chicago
+app.get('/preciosinternacionales', async (req, res) => {
+  let browser = null;
+  
+  try {
+    console.log('Iniciando navegador headless para obtener precios internacionales...');
+    
+    // Lanzar navegador headless
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu'
+      ]
+    });
+    
+    // Abrir nueva página
+    const page = await browser.newPage();
+    
+    // Configurar el user agent como un navegador normal
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+    
+    // Navegar a la página
+    await page.goto('https://www.bolsadecereales.com/precios-internacionales', {
+      waitUntil: 'networkidle2',
+      timeout: 60000
+    });
+    
+    // Esperar a que se cargue la tabla
+    await page.evaluate(() => {
+      return new Promise(resolve => setTimeout(resolve, 5000));
+    });
+    
+    // Extraer los datos específicos de la tabla
+    const data = await page.evaluate(() => {
+      // Resultado final
+      const result = {
+        soja: 0,
+        maiz: 0,
+        trigo: 0,
+        girasol: 0
+      };
+      
+      // Mapa para almacenar el primer valor encontrado para cada producto
+      const productosPrimeraOcurrencia = {};
+      
+      // Buscar todas las filas de la tabla
+      const rows = document.querySelectorAll('.tabla-cotizaciones tr');
+      
+      // Recorrer las filas para encontrar los productos
+      rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 4) return; // Ignorar filas con estructura incorrecta
+        
+        const producto = cells[0].textContent.trim();
+        const posicion = cells[1].textContent.trim();
+        const precioStr = cells[2].textContent.trim(); // Columna "Cierre"
+        
+        // Convertir precio a número
+        const precio = parseFloat(precioStr.replace(/\./g, '').replace(',', '.'));
+        
+        // Si es la primera vez que encontramos este producto, guardamos el valor
+        if (!productosPrimeraOcurrencia[producto]) {
+          productosPrimeraOcurrencia[producto] = {
+            precio: precio,
+            posicion: posicion
+          };
+          
+          console.log(`Primer valor para ${producto}: ${precio} (${posicion})`);
+        }
+      });
+      
+      // Asignar valores al resultado según los productos que nos interesan
+      if (productosPrimeraOcurrencia['Soja']) {
+        result.soja = productosPrimeraOcurrencia['Soja'].precio;
+      }
+      
+      if (productosPrimeraOcurrencia['Maíz']) {
+        result.maiz = productosPrimeraOcurrencia['Maíz'].precio;
+      }
+      
+      if (productosPrimeraOcurrencia['Trigo Chicago']) {
+        result.trigo = productosPrimeraOcurrencia['Trigo Chicago'].precio;
+      }
+      
+      // Incluimos información detallada para depuración
+      result.detalles = {
+        soja: productosPrimeraOcurrencia['Soja'],
+        maiz: productosPrimeraOcurrencia['Maíz'],
+        trigo: productosPrimeraOcurrencia['Trigo Chicago'],
+        girasol: null // No hay girasol en la tabla
+      };
+      
+      return result;
+    });
+    
+    console.log('Datos extraídos:', data);
+    
+    // Separar los precios principales
+    const precios = {
+      soja: data.soja,
+      maiz: data.maiz,
+      trigo: data.trigo,
+      girasol: data.girasol || 0
+    };
+    
+    // Devolver los resultados como JSON
+    res.json({
+      success: true,
+      fecha_consulta: new Date().toLocaleDateString('es-AR'),
+      precios: precios,
+      detalles: data.detalles
+    });
+    
+  } catch (error) {
+    console.error('Error al obtener precios internacionales con Puppeteer:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener los datos',
+      message: error.message
+    });
+  } finally {
+    // Asegurarse de cerrar el navegador
+    if (browser) {
+      await browser.close();
+      console.log('Navegador cerrado correctamente');
+    }
   }
 });
 
