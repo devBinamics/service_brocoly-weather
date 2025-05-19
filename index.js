@@ -369,6 +369,66 @@ app.get('/', (req, res) => {
   `);
 });
 
+// Ruta para obtener la Tasa Activa del BNA
+app.get('/tasaactivabna', async (req, res) => {
+  try {
+    // URL de la página a scrapear
+    const url = 'https://www.bna.com.ar/Home/InformacionAlUsuarioFinanciero';
+    
+    // Hacer la petición HTTP para obtener el HTML
+    const response = await axios.get(url);
+    
+    // Cargar el HTML en cheerio
+    const $ = cheerio.load(response.data);
+    
+    // Extraer la fecha de vigencia de la tasa
+    let fechaVigencia = '';
+    let tasaNominalAnual = '';
+    
+    // Buscar el texto que contiene "Tasa Activa Cartera General Diversas vigente desde el"
+    $('body').find('p, div, span, h1, h2, h3, h4, h5, h6').each((index, element) => {
+      const texto = $(element).text().trim();
+      
+      // Buscar la fecha de vigencia
+      const fechaMatch = texto.match(/Tasa Activa Cartera General Diversas vigente desde el (\d{1,2}\/\d{1,2}\/\d{4})/);
+      if (fechaMatch) {
+        fechaVigencia = fechaMatch[1];
+      }
+      
+      // Buscar la tasa nominal anual
+      const tasaMatch = texto.match(/Tasa Nominal Anual Vencida con capitalización cada 30 días = T\.N\.A\. \(30 días\) = (\d+,\d+)%/);
+      if (tasaMatch) {
+        tasaNominalAnual = tasaMatch[1];
+      }
+    });
+    
+    // Verificar si se encontraron los datos
+    if (!fechaVigencia || !tasaNominalAnual) {
+      return res.status(404).json({
+        success: false,
+        error: 'No se pudieron encontrar los datos solicitados',
+        message: 'La estructura de la página puede haber cambiado'
+      });
+    }
+    
+    // Devolver los resultados como JSON
+    res.json({
+      success: true,
+      fecha_vigencia: fechaVigencia,
+      tasa_nominal_anual: tasaNominalAnual + '%',
+      fecha_consulta: new Date().toLocaleDateString('es-AR')
+    });
+    
+  } catch (error) {
+    console.error('Error al hacer scraping de la tasa activa BNA:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener los datos',
+      message: error.message
+    });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
