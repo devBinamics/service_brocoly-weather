@@ -431,136 +431,202 @@ app.get('/tasaactivabna', async (req, res) => {
   }
 });
 
-// Ruta para obtener precios internacionales de Chicago
-app.get('/preciosinternacionales', async (req, res) => {
-  let browser = null;
-  
+// Ruta para obtener cotizaciones de divisas del BNA
+app.get('/divisasbna', async (req, res) => {
   try {
-    console.log('Iniciando navegador headless para obtener precios internacionales...');
+    // URL de la página a scrapear
+    const url = 'https://www.bna.com.ar/Personas';
     
-    // Lanzar navegador headless
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu'
-      ]
-    });
+    // Hacer la petición HTTP para obtener el HTML
+    const response = await axios.get(url);
     
-    // Abrir nueva página
-    const page = await browser.newPage();
+    // Cargar el HTML en cheerio
+    const $ = cheerio.load(response.data);
     
-    // Configurar el user agent como un navegador normal
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+    // Arrays para almacenar los resultados
+    const billetes = [];
+    const divisas = [];
     
-    // Navegar a la página
-    await page.goto('https://www.bolsadecereales.com/precios-internacionales', {
-      waitUntil: 'networkidle2',
-      timeout: 60000
-    });
+    // Extraer fecha de actualización
+    let fechaActualizacion = '';
+    let horaActualizacion = '';
     
-    // Esperar a que se cargue la tabla
-    await page.evaluate(() => {
-      return new Promise(resolve => setTimeout(resolve, 5000));
-    });
-    
-    // Extraer los datos específicos de la tabla
-    const data = await page.evaluate(() => {
-      // Resultado final
-      const result = {
-        soja: 0,
-        maiz: 0,
-        trigo: 0,
-        girasol: 0
-      };
+    // Extraer información de billetes
+    $('#billetes table.cotizacion tbody tr').each((index, element) => {
+      const moneda = $(element).find('td.tit').text().trim();
+      const compra = $(element).find('td').eq(1).text().trim();
+      const venta = $(element).find('td').eq(2).text().trim();
       
-      // Mapa para almacenar el primer valor encontrado para cada producto
-      const productosPrimeraOcurrencia = {};
-      
-      // Buscar todas las filas de la tabla
-      const rows = document.querySelectorAll('.tabla-cotizaciones tr');
-      
-      // Recorrer las filas para encontrar los productos
-      rows.forEach(row => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length < 4) return; // Ignorar filas con estructura incorrecta
-        
-        const producto = cells[0].textContent.trim();
-        const posicion = cells[1].textContent.trim();
-        const precioStr = cells[2].textContent.trim(); // Columna "Cierre"
-        
-        // Convertir precio a número
-        const precio = parseFloat(precioStr.replace(/\./g, '').replace(',', '.'));
-        
-        // Si es la primera vez que encontramos este producto, guardamos el valor
-        if (!productosPrimeraOcurrencia[producto]) {
-          productosPrimeraOcurrencia[producto] = {
-            precio: precio,
-            posicion: posicion
-          };
-          
-          console.log(`Primer valor para ${producto}: ${precio} (${posicion})`);
-        }
-      });
-      
-      // Asignar valores al resultado según los productos que nos interesan
-      if (productosPrimeraOcurrencia['Soja']) {
-        result.soja = productosPrimeraOcurrencia['Soja'].precio;
+      if (moneda && compra && venta) {
+        billetes.push({
+          moneda: moneda,
+          compra: parseFloat(compra.replace(',', '.')),
+          venta: parseFloat(venta.replace(',', '.')),
+          compra_texto: compra,
+          venta_texto: venta
+        });
       }
-      
-      if (productosPrimeraOcurrencia['Maíz']) {
-        result.maiz = productosPrimeraOcurrencia['Maíz'].precio;
-      }
-      
-      if (productosPrimeraOcurrencia['Trigo Chicago']) {
-        result.trigo = productosPrimeraOcurrencia['Trigo Chicago'].precio;
-      }
-      
-      // Incluimos información detallada para depuración
-      result.detalles = {
-        soja: productosPrimeraOcurrencia['Soja'],
-        maiz: productosPrimeraOcurrencia['Maíz'],
-        trigo: productosPrimeraOcurrencia['Trigo Chicago'],
-        girasol: null // No hay girasol en la tabla
-      };
-      
-      return result;
     });
     
-    console.log('Datos extraídos:', data);
+    // Extraer fecha de billetes
+    const fechaBilletes = $('#billetes table.cotizacion thead th.fechaCot').text().trim();
+    if (fechaBilletes) {
+      fechaActualizacion = fechaBilletes;
+    }
     
-    // Separar los precios principales
-    const precios = {
-      soja: data.soja,
-      maiz: data.maiz,
-      trigo: data.trigo,
-      girasol: data.girasol || 0
-    };
+    // Extraer hora de actualización de billetes
+    const horaBilletes = $('#billetes .legal').first().text().trim();
+    const horaMatch = horaBilletes.match(/Hora Actualización: (\d{2}:\d{2})/);
+    if (horaMatch) {
+      horaActualizacion = horaMatch[1];
+    }
+    
+    // Extraer información de divisas
+    $('#divisas table.cotizacion tbody tr').each((index, element) => {
+      const moneda = $(element).find('td.tit').text().trim();
+      const compra = $(element).find('td').eq(1).text().trim();
+      const venta = $(element).find('td').eq(2).text().trim();
+      
+      if (moneda && compra && venta) {
+        divisas.push({
+          moneda: moneda,
+          compra: parseFloat(compra.replace(',', '.')),
+          venta: parseFloat(venta.replace(',', '.')),
+          compra_texto: compra,
+          venta_texto: venta
+        });
+      }
+    });
+    
+    // Si no se extrajo fecha de billetes, intentar con divisas
+    if (!fechaActualizacion) {
+      const fechaDivisas = $('#divisas table.cotizacion thead th.fechaCot').text().trim();
+      if (fechaDivisas) {
+        fechaActualizacion = fechaDivisas;
+      }
+    }
     
     // Devolver los resultados como JSON
     res.json({
       success: true,
-      fecha_consulta: new Date().toLocaleDateString('es-AR'),
-      precios: precios,
-      detalles: data.detalles
+      fecha_actualizacion: fechaActualizacion,
+      hora_actualizacion: horaActualizacion,
+      billetes: billetes,
+      divisas: divisas,
+      total_billetes: billetes.length,
+      total_divisas: divisas.length
     });
     
   } catch (error) {
-    console.error('Error al obtener precios internacionales con Puppeteer:', error);
+    console.error('Error al hacer scraping de divisas BNA:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener los datos de divisas',
+      message: error.message
+    });
+  }
+});
+
+// Ruta para obtener cotización de una divisa específica
+app.get('/divisasbna/:moneda', async (req, res) => {
+  try {
+    const monedaQuery = req.params.moneda.toLowerCase();
+    const url = 'https://www.bna.com.ar/Personas';
+    
+    const response = await axios.get(url);
+    const $ = cheerio.load(response.data);
+    
+    let resultado = null;
+    let fechaActualizacion = '';
+    let horaActualizacion = '';
+    let tipoEncontrado = '';
+    
+    // Buscar en billetes
+    $('#billetes table.cotizacion tbody tr').each((index, element) => {
+      const moneda = $(element).find('td.tit').text().trim();
+      
+      if (moneda.toLowerCase().includes(monedaQuery)) {
+        const compra = $(element).find('td').eq(1).text().trim();
+        const venta = $(element).find('td').eq(2).text().trim();
+        
+        resultado = {
+          moneda: moneda,
+          compra: parseFloat(compra.replace(',', '.')),
+          venta: parseFloat(venta.replace(',', '.')),
+          compra_texto: compra,
+          venta_texto: venta
+        };
+        tipoEncontrado = 'billetes';
+        
+        // Extraer fecha y hora para billetes
+        const fechaBilletes = $('#billetes table.cotizacion thead th.fechaCot').text().trim();
+        if (fechaBilletes) {
+          fechaActualizacion = fechaBilletes;
+        }
+        
+        const horaBilletes = $('#billetes .legal').first().text().trim();
+        const horaMatch = horaBilletes.match(/Hora Actualización: (\d{2}:\d{2})/);
+        if (horaMatch) {
+          horaActualizacion = horaMatch[1];
+        }
+        
+        return false; // Salir del each
+      }
+    });
+    
+    // Si no se encontró en billetes, buscar en divisas
+    if (!resultado) {
+      $('#divisas table.cotizacion tbody tr').each((index, element) => {
+        const moneda = $(element).find('td.tit').text().trim();
+        
+        if (moneda.toLowerCase().includes(monedaQuery)) {
+          const compra = $(element).find('td').eq(1).text().trim();
+          const venta = $(element).find('td').eq(2).text().trim();
+          
+          resultado = {
+            moneda: moneda,
+            compra: parseFloat(compra.replace(',', '.')),
+            venta: parseFloat(venta.replace(',', '.')),
+            compra_texto: compra,
+            venta_texto: venta
+          };
+          tipoEncontrado = 'divisas';
+          
+          // Extraer fecha para divisas
+          const fechaDivisas = $('#divisas table.cotizacion thead th.fechaCot').text().trim();
+          if (fechaDivisas) {
+            fechaActualizacion = fechaDivisas;
+          }
+          
+          return false; // Salir del each
+        }
+      });
+    }
+    
+    if (!resultado) {
+      return res.status(404).json({
+        success: false,
+        error: 'Moneda no encontrada',
+        message: `No se encontraron datos para: ${req.params.moneda}`
+      });
+    }
+    
+    res.json({
+      success: true,
+      moneda_buscada: req.params.moneda,
+      tipo: tipoEncontrado,
+      fecha_actualizacion: fechaActualizacion,
+      hora_actualizacion: horaActualizacion,
+      data: resultado
+    });
+    
+  } catch (error) {
+    console.error('Error al buscar divisa específica:', error);
     res.status(500).json({
       success: false,
       error: 'Error al obtener los datos',
       message: error.message
     });
-  } finally {
-    // Asegurarse de cerrar el navegador
-    if (browser) {
-      await browser.close();
-      console.log('Navegador cerrado correctamente');
-    }
   }
 });
 
